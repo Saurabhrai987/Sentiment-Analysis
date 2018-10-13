@@ -1,0 +1,92 @@
+library(tm)
+library(RTextTools)
+library(e1071)
+library(plyr)
+library(stringr)
+library(tidyr)
+
+#read text data and AFINN list
+setwd("C:\\Users\\kulsha\\Desktop\\Analytics-Project1") ##change the directory to your local folder.
+print("1")
+answer <- read.csv(file="Data1.csv",stringsAsFactors=FALSE,fileEncoding="latin1")
+dim(answer)
+str(answer)
+
+afinn_list <- read.csv(file="AFINN_list.csv",header=TRUE)
+names(afinn_list) <- c("word","score")
+afinn_list$word <- tolower(afinn_list$word)
+afinn_list$score <- as.numeric(as.character(afinn_list$score))
+
+#create the function for calculating the sentiment score
+library(stringr)
+scoreSentence <- function(sentence){
+  score <- 0
+  word.list = str_split(sentence, '\\s+')
+  words = unlist(word.list)
+  matches <- match(words,afinn_list$word)
+  for (i in 1:length(matches)){
+    if (!is.na(matches[i])){
+      score <- score + afinn_list$score[matches[i]]}
+  }
+  score
+}
+
+#clean text and apply the function to the text
+answer$Recommended_Comment__c<- tolower(answer$Recommended_Comment__c)
+answer$Recommended_Comment__c<- removePunctuation(answer$Recommended_Comment__c)
+answer$Recommended_Comment__c<- removeNumbers(answer$Recommended_Comment__c)
+SentimentScore <- unlist(lapply(answer$Recommended_Comment__c,scoreSentence))
+answer <- data.frame(answer,SentimentScore)
+answer$classification <- ifelse(answer$SentimentScore >= 0,"positive","negative")
+
+if ((answer$NPS_CATEGORY_c="Promotor") & (answer$classification="Positive"))
+{
+answer$Status="Positive Promotor"
+}
+
+if ((answer$NPS_CATEGORY_c="Promotor") & (answer$classification="Negative"))
+{
+answer$Status="Negative Promotor"
+}
+
+if ((answer$NPS_CATEGORY_c="Detractor") & (answer$classification="Positive"))
+{
+answer$Status="Positive Detractor"
+}
+
+if ((answer$NPS_CATEGORY_c="Detractor") & (answer$classification="Negative"))
+{
+answer$Status="Negative Detractor"
+}
+
+##topic clustering
+#you should have a local word cluster first. Use word2vec to get the word cluster.
+cluster <- read.csv("wordCluster.csv",stringsAsFactors=FALSE)
+
+#create the function to extract the topic
+find <- function(sentence){
+  keyword <- ""
+  word.list = str_split(sentence, '\\s+')
+  words = unlist(word.list)
+  matches <- match(words,cluster$word)
+  for (i in 1:length(matches)){
+    if (!is.na(matches[i])){
+      w <- cluster$cluster[matches[i]]
+      if (length(grep(w,keyword)) == 0 ){
+        keyword <- paste(keyword,w,sep=" ")}
+    }
+  }
+  keyword
+}
+
+#apply the function to message
+c <- unlist(lapply(answer$message,find))
+c <- data.frame(c)
+matrix_message = create_matrix(c)
+mat_message = as.matrix(matrix_message)
+answer <- data.frame(answer,mat_message)
+for (i in 12:ncol(answer)){
+  name <- colnames(answer[i])
+  answer[i] <- ifelse(answer[i] == 1,name,"")
+}
+write.csv(answer,file="message_table.csv",row.names=FALSE)
